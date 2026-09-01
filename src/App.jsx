@@ -319,8 +319,8 @@ const LIBRARY_LINKS = [
   { name: "RSC Learn Chemistry", url: "https://edu.rsc.org", desc: "Recursos didácticos gratuitos da Royal Society of Chemistry." }
 ];
 
-const TEACHER_CODE = "PROF-B";
-const ADMIN_CODE = "ADMIN-S";
+const TEACHER_CODE = "PROF-QUIM2026";
+const ADMIN_CODE = "ADMIN-QUIM2026";
 const PASS_TO_UNLOCK = 0.6;
 
 const COLOR_MAP = {
@@ -373,12 +373,13 @@ async function fetchResources() {
   if (error) { console.error(error); return []; }
   return (data || []).map((r) => ({
     id: r.id, title: r.title, type: r.type, unit: r.unit, content: r.content,
-    link: r.link, authorName: r.author_name, createdAt: new Date(r.created_at).getTime()
+    link: r.link, authorName: r.author_name, turmaId: r.turma_id, createdAt: new Date(r.created_at).getTime()
   }));
 }
-async function createResource({ title, type, unit, content, link, authorId, authorName }) {
+async function createResource({ title, type, unit, content, link, authorId, authorName, turmaId }) {
   const { error } = await supabase.from("resources").insert({
-    title, type, unit: Number(unit), content, link, author_id: authorId, author_name: authorName
+    title, type, unit: Number(unit), content, link, author_id: authorId, author_name: authorName,
+    turma_id: turmaId || null
   });
   if (error) console.error("Falha ao publicar recurso", error);
   return !error;
@@ -386,6 +387,22 @@ async function createResource({ title, type, unit, content, link, authorId, auth
 async function deleteResource(id) {
   const { error } = await supabase.from("resources").delete().eq("id", id);
   if (error) console.error("Falha ao remover recurso", error);
+}
+
+// --- Turmas ---
+async function fetchTurmas() {
+  const { data, error } = await supabase.from("turmas").select("*").order("nome");
+  if (error) { console.error(error); return []; }
+  return data || [];
+}
+async function createTurma(nome, professorId) {
+  const { error } = await supabase.from("turmas").insert({ nome: nome.trim(), professor_id: professorId });
+  if (error) console.error("Falha ao criar turma", error);
+  return !error;
+}
+async function deleteTurma(id) {
+  const { error } = await supabase.from("turmas").delete().eq("id", id);
+  if (error) console.error("Falha ao remover turma", error);
 }
 
 function emptyProgress() {
@@ -448,9 +465,13 @@ function LoginScreen({ onLogin }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
+  const [turmaId, setTurmaId] = useState("");
+  const [turmas, setTurmas] = useState([]);
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => { fetchTurmas().then(setTurmas); }, []);
 
   const reset = () => { setError(""); };
 
@@ -490,29 +511,14 @@ function LoginScreen({ onLogin }) {
       setBusy(false);
       return setError(signUpError?.message?.includes("already") ? "Esse nome de utilizador já existe." : "Não foi possível criar a conta. Tenta novamente.");
     }
-    // Em alguns projectos Supabase (plano gratuito), a confirmação de email
-    // fica forçada e o signUp não devolve sessão activa de imediato. Como a
-    // base de dados tem um "trigger" que confirma automaticamente as contas
-    // (ver supabase/schema.sql), basta tentar entrar logo a seguir.
-    let session = data.session;
-    if (!session) {
-      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email: usernameToEmail(uname),
-        password
-      });
-      if (signInError || !signInData.session) {
-        setBusy(false);
-        return setError("Conta criada! Tenta entrar agora com o teu utilizador e senha na aba \"Entrar\".");
-      }
-      session = signInData.session;
-    }
     const { error: profileError } = await supabase.from("profiles").insert({
       id: data.user.id,
       username: uname,
       name: name.trim(),
       role,
       points: 0,
-      progress: emptyProgress()
+      progress: emptyProgress(),
+      turma_id: role === "aluno" && turmaId ? turmaId : null
     });
     if (profileError) {
       setBusy(false);
@@ -622,6 +628,16 @@ function LoginScreen({ onLogin }) {
                 <input type={showPass ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)}
                   className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
               </div>
+              {role === "aluno" && (
+                <div>
+                  <label className="text-xs font-medium text-slate-600">Turma</label>
+                  <select value={turmaId} onChange={(e) => setTurmaId(e.target.value)}
+                    className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                    <option value="">Sem turma (o professor pode atribuir depois)</option>
+                    {turmas.map((t) => <option key={t.id} value={t.id}>{t.nome}</option>)}
+                  </select>
+                </div>
+              )}
               {(role === "professor" || role === "administrador") && (
                 <div>
                   <label className="text-xs font-medium text-slate-600">Código de acesso ({role === "professor" ? "professor" : "administrador"})</label>
@@ -651,6 +667,7 @@ function LoginScreen({ onLogin }) {
 function Sidebar({ user, page, setPage, onLogout }) {
   const alunoItems = [
     { k: "inicio", label: "Unidades", icon: Home },
+    { k: "recursos", label: "Fichas e Recursos", icon: FileText },
     { k: "ranking", label: "Ranking", icon: Trophy },
     { k: "lab", label: "Laboratório Virtual", icon: FlaskConical },
     { k: "biblioteca", label: "Biblioteca Virtual", icon: Library },
@@ -1067,6 +1084,48 @@ function VirtualLibrary() {
 }
 
 /* ============================================================
+   RECURSOS DO PROFESSOR (fichas, materiais) — vista do estudante
+   ============================================================ */
+function StudentResources() {
+  const [resources, setResources] = useState(null);
+
+  useEffect(() => {
+    fetchResources().then(setResources);
+  }, []);
+
+  const downloadResource = (r) => {
+    const blob = new Blob([`${r.title}\n${r.type} — Unidade: ${UNITS.find((u) => u.id === Number(r.unit))?.title || ""}\nAutor(a): ${r.authorName}\n\n${r.content || ""}${r.link ? "\n\nLigação: " + r.link : ""}`], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `${r.title.replace(/\s+/g, "_")}.txt`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="max-w-2xl mx-auto">
+      <h1 className="font-display text-2xl font-bold text-slate-900 mb-1">Fichas e Recursos</h1>
+      <p className="text-slate-500 text-sm mb-6">Materiais publicados pelo(a) teu/tua professor(a) — só vês os que são para ti.</p>
+      <div className="space-y-2">
+        {resources === null && <p className="text-sm text-slate-400">A carregar…</p>}
+        {resources && resources.length === 0 && <p className="text-sm text-slate-400">Ainda não há fichas ou materiais publicados para ti.</p>}
+        {resources && resources.map((r) => (
+          <div key={r.id} className="flex items-start gap-3 border border-slate-200 rounded-lg p-4 bg-white">
+            <FileText className="text-sky-600 shrink-0 mt-0.5" size={18} />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-slate-800">{r.title}</p>
+              <p className="text-xs text-slate-400 mt-0.5">{r.type} · {UNITS.find((u) => u.id === Number(r.unit))?.title} · por {r.authorName}</p>
+              {r.content && <p className="text-sm text-slate-600 mt-2 whitespace-pre-wrap">{r.content}</p>}
+              {r.link && <a href={r.link} target="_blank" rel="noopener noreferrer" className="text-xs text-sky-600 flex items-center gap-1 mt-1">{r.link} <ExternalLink size={11} /></a>}
+            </div>
+            <button onClick={() => downloadResource(r)} className="text-xs text-slate-500 hover:text-slate-800 border border-slate-200 rounded-lg px-2.5 py-1.5 shrink-0">Descarregar</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
    PROFESSOR IA
    ============================================================ */
 function AITeacher() {
@@ -1140,7 +1199,9 @@ function AITeacher() {
 function TeacherPanel({ user }) {
   const [resources, setResources] = useState(null);
   const [students, setStudents] = useState(null);
-  const [form, setForm] = useState({ title: "", type: "Ficha de Exercícios", unit: UNITS[0].id, content: "", link: "" });
+  const [turmas, setTurmas] = useState([]);
+  const [novaTurma, setNovaTurma] = useState("");
+  const [form, setForm] = useState({ title: "", type: "Ficha de Exercícios", unit: UNITS[0].id, content: "", link: "", turmaId: "" });
   const [showForm, setShowForm] = useState(false);
 
   const loadResources = useCallback(async () => {
@@ -1152,16 +1213,41 @@ function TeacherPanel({ user }) {
     items.sort((a, b) => b.points - a.points);
     setStudents(items);
   }, []);
-  useEffect(() => { loadResources(); loadStudents(); }, [loadResources, loadStudents]);
+  const loadTurmas = useCallback(async () => {
+    const items = await fetchTurmas();
+    setTurmas(items);
+  }, []);
+  useEffect(() => { loadResources(); loadStudents(); loadTurmas(); }, [loadResources, loadStudents, loadTurmas]);
 
   const submitResource = async (e) => {
     e.preventDefault();
     if (!form.title.trim()) return;
     await createResource({ ...form, authorId: user.id, authorName: user.name });
-    setForm({ title: "", type: "Ficha de Exercícios", unit: UNITS[0].id, content: "", link: "" });
+    setForm({ title: "", type: "Ficha de Exercícios", unit: UNITS[0].id, content: "", link: "", turmaId: "" });
     setShowForm(false);
     loadResources();
   };
+
+  const addTurma = async (e) => {
+    e.preventDefault();
+    if (!novaTurma.trim()) return;
+    await createTurma(novaTurma, user.id);
+    setNovaTurma("");
+    loadTurmas();
+  };
+
+  const removeTurma = async (id) => {
+    await deleteTurma(id);
+    loadTurmas();
+    loadStudents();
+  };
+
+  const assignTurma = async (studentId, newTurmaId) => {
+    await updateProfile(studentId, { turma_id: newTurmaId || null });
+    loadStudents();
+  };
+
+  const nomeTurma = (id) => turmas.find((t) => t.id === id)?.nome || "";
 
   const removeResource = async (id) => {
     await deleteResource(id);
@@ -1223,12 +1309,41 @@ function TeacherPanel({ user }) {
             <input value={form.link} onChange={(e) => setForm({ ...form, link: e.target.value })}
               className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm" placeholder="https://…" />
           </div>
+          <div>
+            <label className="text-xs font-medium text-slate-600">Enviar para</label>
+            <select value={form.turmaId} onChange={(e) => setForm({ ...form, turmaId: e.target.value })}
+              className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm">
+              <option value="">Todos os estudantes (todas as turmas)</option>
+              {turmas.map((t) => <option key={t.id} value={t.id}>Só a turma: {t.nome}</option>)}
+            </select>
+          </div>
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 text-sm text-slate-500">Cancelar</button>
             <button className="bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-semibold font-display px-4 py-2 rounded-lg flex items-center gap-1.5"><Upload size={14} /> Publicar</button>
           </div>
         </form>
       )}
+
+      <h3 className="font-display font-semibold text-slate-800 mb-3">Turmas</h3>
+      <div className="bg-white border border-slate-200 rounded-xl p-4 mb-8">
+        <form onSubmit={addTurma} className="flex gap-2 mb-3">
+          <input value={novaTurma} onChange={(e) => setNovaTurma(e.target.value)}
+            placeholder="ex: 9ª A"
+            className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+          <button className="bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-semibold font-display px-4 py-2 rounded-lg flex items-center gap-1.5">
+            <Plus size={14} /> Criar turma
+          </button>
+        </form>
+        {turmas.length === 0 && <p className="text-sm text-slate-400">Ainda não criaste nenhuma turma.</p>}
+        <div className="flex flex-wrap gap-2">
+          {turmas.map((t) => (
+            <span key={t.id} className="flex items-center gap-1.5 bg-slate-100 text-slate-700 text-xs font-medium px-3 py-1.5 rounded-full">
+              {t.nome}
+              <button onClick={() => removeTurma(t.id)} className="text-slate-400 hover:text-rose-600"><Trash2 size={12} /></button>
+            </span>
+          ))}
+        </div>
+      </div>
 
       <h3 className="font-display font-semibold text-slate-800 mb-3">Recursos publicados</h3>
       <div className="space-y-2 mb-10">
@@ -1239,7 +1354,7 @@ function TeacherPanel({ user }) {
             <FileText className="text-sky-600 shrink-0 mt-0.5" size={18} />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-slate-800">{r.title}</p>
-              <p className="text-xs text-slate-400 mt-0.5">{r.type} · {UNITS.find((u) => u.id === Number(r.unit))?.title} · por {r.authorName}</p>
+              <p className="text-xs text-slate-400 mt-0.5">{r.type} · {UNITS.find((u) => u.id === Number(r.unit))?.title} · por {r.authorName} · {r.turmaId ? `turma ${nomeTurma(r.turmaId)}` : "todas as turmas"}</p>
               {r.link && <a href={r.link} target="_blank" rel="noopener noreferrer" className="text-xs text-sky-600 flex items-center gap-1 mt-1">{r.link} <ExternalLink size={11} /></a>}
             </div>
             <button onClick={() => downloadResource(r)} className="text-xs text-slate-500 hover:text-slate-800 border border-slate-200 rounded-lg px-2.5 py-1.5">Descarregar</button>
@@ -1263,6 +1378,11 @@ function TeacherPanel({ user }) {
                 <p className="text-sm font-medium text-slate-800 truncate">{s.name}</p>
                 <p className="text-xs text-slate-400">{completedCount} / {UNITS.length} unidades concluídas</p>
               </div>
+              <select value={s.turma_id || ""} onChange={(e) => assignTurma(s.id, e.target.value)}
+                className="border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-600">
+                <option value="">Sem turma</option>
+                {turmas.map((t) => <option key={t.id} value={t.id}>{t.nome}</option>)}
+              </select>
               <PointsPill points={s.points} />
             </div>
           );
@@ -1433,6 +1553,7 @@ export default function App() {
         {page === "inicio" && selectedUnit && (
           <ExerciseRunner user={user} unit={selectedUnit} saveUser={saveUser} onBack={() => setSelectedUnitId(null)} />
         )}
+        {page === "recursos" && <StudentResources />}
         {page === "ranking" && <Ranking currentUser={user} />}
         {page === "lab" && <VirtualLab />}
         {page === "biblioteca" && <VirtualLibrary />}
