@@ -319,8 +319,8 @@ const LIBRARY_LINKS = [
   { name: "RSC Learn Chemistry", url: "https://edu.rsc.org", desc: "Recursos didácticos gratuitos da Royal Society of Chemistry." }
 ];
 
-const TEACHER_CODE = "PROF-QUIM2026";
-const ADMIN_CODE = "ADMIN-QUIM2026";
+const TEACHER_CODE = "PROF-B";
+const ADMIN_CODE = "ADMIN-S";
 const PASS_TO_UNLOCK = 0.6;
 
 const COLOR_MAP = {
