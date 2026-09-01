@@ -1146,18 +1146,15 @@ function AITeacher() {
     setInput("");
     setBusy(true);
     try {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
+      const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-6",
-          max_tokens: 1000,
-          system: "Tu és um(a) professor(a) de Química virtual para estudantes moçambicanos da 9ª classe. Responde sempre em português, de forma clara, simpática e didáctica, com exemplos do dia-a-dia quando possível. Se o estudante pedir a resposta directa de um exercício de avaliação, não a dês de imediato: guia-o com perguntas socráticas e pistas até ele chegar à resposta sozinho, para preservar a integridade académica. Podes explicar livremente conceitos, dar exemplos e corrigir erros de raciocínio.",
-          messages: history.map((m) => ({ role: m.role, content: m.text }))
+          messages: history.map((m) => ({ role: m.role, text: m.text }))
         })
       });
       const data = await response.json();
-      const text = (data.content || []).map((b) => b.text || "").join("\n").trim() || "Não consegui gerar uma resposta agora. Tenta novamente.";
+      const text = data.text || "Não consegui gerar uma resposta agora. Tenta novamente.";
       setMessages((h) => [...h, { role: "assistant", text }]);
     } catch (e) {
       setMessages((h) => [...h, { role: "assistant", text: "Não foi possível contactar o Professor IA neste momento. Tenta novamente dentro de instantes." }]);
