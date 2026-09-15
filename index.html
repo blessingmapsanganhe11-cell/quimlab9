@@ -7,6 +7,23 @@
   </head>
   <body>
     <div id="root"></div>
+
+    <!-- VLibras — tradutor automático de português para Língua Brasileira de Sinais (Libras),
+         gratuito, disponibilizado pelo governo brasileiro. Ajuda estudantes surdos que tenham
+         a língua gestual como língua principal. Nota: traduz para Libras, não para a Língua
+         de Sinais Moçambicana (LMS) — não existe, por agora, uma ferramenta gratuita equivalente
+         para LMS. -->
+    <div vw class="enabled">
+      <div vw-access-button class="active"></div>
+      <div vw-plugin-wrapper>
+        <div class="vw-plugin-top-wrapper"></div>
+      </div>
+    </div>
+    <script src="https://vlibras.gov.br/app/vlibras-plugin.js"></script>
+    <script>
+      new window.VLibras.Widget('https://vlibras.gov.br/app');
+    </script>
+
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
