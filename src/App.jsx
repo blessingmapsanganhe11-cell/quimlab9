@@ -4,7 +4,7 @@ import {
   MessageCircle, Send, Upload, FileText, CheckCircle2, XCircle, Award,
   ChevronRight, Plus, Trash2, ExternalLink, Eye, EyeOff, AlertTriangle,
   Sparkles, Home, Library, FlaskConical, Users, ClipboardList, Medal,
-  RotateCcw, ChevronLeft, Loader2, X
+  RotateCcw, ChevronLeft, Loader2, X, Volume2, Mic, MicOff
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
@@ -792,6 +792,9 @@ function ExerciseRunner({ user, unit, saveUser, onBack }) {
   const progress = user.progress[unit.id] || { completed: false, answers: {} };
   const alreadyCorrect = progress.answers[ex.id]?.correctAchieved;
 
+  const [vozActiva, toggleVoz] = useAccessibilityMode();
+  const [escutando, setEscutando] = useState(false);
+
   useEffect(() => {
     const onVis = () => { if (document.hidden) setTabWarnings((w) => w + 1); };
     document.addEventListener("visibilitychange", onVis);
@@ -848,6 +851,37 @@ function ExerciseRunner({ user, unit, saveUser, onBack }) {
   const correctNow = submitted && selected === ex.correct;
   const forcedReveal = submitted && !correctNow && attempts >= 3;
 
+  const lerPergunta = useCallback(() => {
+    const letras = ["A", "B", "C", "D", "E", "F"];
+    const texto = `${ex.q}. Opções: ${ex.options.map((o, i) => `${letras[i]}, ${o}`).join(". ")}`;
+    speak(texto);
+  }, [ex]);
+
+  useEffect(() => {
+    if (vozActiva) lerPergunta();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idx, vozActiva]);
+
+  useEffect(() => {
+    if (vozActiva && submitted) {
+      const veredicto = correctNow ? "Correcto! Mais 10 pontos." : forcedReveal ? "Resposta correcta revelada." : "Ainda não é essa, tenta outra vez.";
+      speak(`${veredicto} ${ex.explain}`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [submitted]);
+
+  const letrasCmd = ["a", "b", "c", "d", "e", "f"];
+  useVoiceCommands(vozActiva && escutando, {
+    "confirmar": () => submit(),
+    "repetir": () => lerPergunta(),
+    "próxima": () => { if (submitted) next(); },
+    "seguinte": () => { if (submitted) next(); },
+    "continuar": () => { if (submitted) next(); },
+    ...Object.fromEntries(letrasCmd.slice(0, ex.options.length).map((l, i) => [
+      `opção ${l}`, () => !submitted && setSelected(i)
+    ])),
+  });
+
   if (finished) {
     const score = unitScore(user, unit);
     const completed = user.progress[unit.id]?.completed;
@@ -886,6 +920,24 @@ function ExerciseRunner({ user, unit, saveUser, onBack }) {
         </span>
       </div>
 
+      <div className="flex items-center gap-2 mb-4">
+        <button onClick={toggleVoz} aria-pressed={vozActiva}
+          className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border ${vozActiva ? "bg-slate-900 text-white border-slate-900" : "border-slate-300 text-slate-600 hover:border-slate-400"}`}>
+          <Volume2 size={14} /> {vozActiva ? "Voz activada" : "Ler em voz alta"}
+        </button>
+        {vozActiva && (
+          <>
+            <button onClick={lerPergunta} className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:border-slate-400">
+              <RotateCcw size={14} /> Repetir
+            </button>
+            <button onClick={() => setEscutando((v) => !v)} aria-pressed={escutando}
+              className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border ${escutando ? "bg-rose-600 text-white border-rose-600" : "border-slate-300 text-slate-600 hover:border-slate-400"}`}>
+              {escutando ? <Mic size={14} /> : <MicOff size={14} />} {escutando ? "A ouvir…" : "Comando de voz"}
+            </button>
+          </>
+        )}
+      </div>
+
       <div className="bg-white border border-slate-200 rounded-xl p-6">
         <h3 className="font-display font-semibold text-lg text-slate-900 mb-5 select-none">{ex.q}</h3>
         <div className="space-y-2.5">
@@ -900,10 +952,12 @@ function ExerciseRunner({ user, unit, saveUser, onBack }) {
             }
             return (
               <button key={i} disabled={submitted} onClick={() => setSelected(i)}
+                aria-pressed={selected === i}
+                aria-label={`Opção ${String.fromCharCode(65 + i)}: ${opt}${submitted && i === ex.correct ? " — correcta" : ""}${submitted && i === selected && i !== ex.correct ? " — incorrecta" : ""}`}
                 className={`w-full text-left border rounded-lg px-4 py-3 text-sm font-medium text-slate-800 transition flex items-center justify-between ${cls}`}>
                 {opt}
-                {submitted && i === ex.correct && <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />}
-                {submitted && i === selected && i !== ex.correct && <XCircle size={16} className="text-rose-500 shrink-0" />}
+                {submitted && i === ex.correct && <CheckCircle2 size={16} className="text-emerald-600 shrink-0" aria-hidden="true" />}
+                {submitted && i === selected && i !== ex.correct && <XCircle size={16} className="text-rose-500 shrink-0" aria-hidden="true" />}
               </button>
             );
           })}
@@ -1132,6 +1186,67 @@ function StudentResources() {
       </div>
     </div>
   );
+}
+
+/* ============================================================
+   ACESSIBILIDADE — leitura em voz alta e comandos de voz
+   (usa a Web Speech API, já incluída grátis nos browsers —
+   não precisa de nenhuma chave nem serviço pago)
+   ============================================================ */
+function speak(text) {
+  try {
+    if (!("speechSynthesis" in window)) return;
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = "pt-PT";
+    utter.rate = 0.95;
+    window.speechSynthesis.speak(utter);
+  } catch (e) {
+    console.error("Leitura em voz alta não suportada neste navegador.", e);
+  }
+}
+
+function useVoiceCommands(active, commandsMap) {
+  const recognitionRef = useRef(null);
+  const commandsRef = useRef(commandsMap);
+  commandsRef.current = commandsMap;
+
+  useEffect(() => {
+    if (!active) {
+      if (recognitionRef.current) { try { recognitionRef.current.stop(); } catch (e) {} }
+      return;
+    }
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+    const recognition = new SpeechRecognition();
+    recognition.lang = "pt-PT";
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.onresult = (event) => {
+      const said = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
+      for (const [key, action] of Object.entries(commandsRef.current)) {
+        if (said.includes(key)) { action(); break; }
+      }
+    };
+    recognition.onerror = () => {};
+    recognition.onend = () => {
+      if (active) { try { recognition.start(); } catch (e) {} }
+    };
+    try { recognition.start(); } catch (e) {}
+    recognitionRef.current = recognition;
+    return () => { try { recognition.stop(); } catch (e) {} };
+  }, [active]);
+}
+
+function useAccessibilityMode() {
+  const [vozActiva, setVozActiva] = useState(() => localStorage.getItem("quimlab9_voz") === "1");
+  const toggle = () => {
+    const next = !vozActiva;
+    setVozActiva(next);
+    localStorage.setItem("quimlab9_voz", next ? "1" : "0");
+    if (!next) window.speechSynthesis?.cancel();
+  };
+  return [vozActiva, toggle];
 }
 
 /* ============================================================
