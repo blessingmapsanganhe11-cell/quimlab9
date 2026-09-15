@@ -466,6 +466,7 @@ function LoginScreen({ onLogin }) {
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [turmaId, setTurmaId] = useState("");
+  const [escola, setEscola] = useState("");
   const [turmas, setTurmas] = useState([]);
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState("");
@@ -498,6 +499,7 @@ function LoginScreen({ onLogin }) {
     e.preventDefault();
     reset();
     if (!name || !username || !password) return setError("Preenche todos os campos obrigatórios.");
+    if (!escola.trim()) return setError("Indica o nome da tua escola.");
     if (password.length < 6) return setError("A senha deve ter pelo menos 6 caracteres.");
     if (role === "professor" && code !== TEACHER_CODE) return setError("Código de professor inválido. Pede-o à direcção da escola.");
     if (role === "administrador" && code !== ADMIN_CODE) return setError("Código de administrador inválido.");
@@ -518,6 +520,7 @@ function LoginScreen({ onLogin }) {
       role,
       points: 0,
       progress: emptyProgress(),
+      escola: escola.trim(),
       turma_id: role === "aluno" && turmaId ? turmaId : null
     });
     if (profileError) {
@@ -626,6 +629,12 @@ function LoginScreen({ onLogin }) {
               <div>
                 <label className="text-xs font-medium text-slate-600">Senha</label>
                 <input type={showPass ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)}
+                  className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-600">Escola</label>
+                <input value={escola} onChange={(e) => setEscola(e.target.value)}
+                  placeholder="Nome da tua escola"
                   className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
               </div>
               {role === "aluno" && (
